@@ -21,6 +21,7 @@ class BinanceFuturesClient:
             self._wss_url = "wss://fsrteam.binance.com/ws"
             self.connection_type = "Real Account"
 
+        self.platform = "binance_futures"
         self._public_key = public_key
         self._secret_key = secret_key
 
@@ -85,4 +86,3 @@ class BinanceFuturesClient:
 if __name__ == '__main__':
     binance = BinanceFuturesClient(BINANCE_TESTNET_API_PUBLIC, BINANCE_TESTNET_API_SECRET, testnet=True)
     binance.get_current_contracts()
-    
