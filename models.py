@@ -3,6 +3,9 @@ import typing
 import datetime as dt
 import pandas as pd
 
+TIME_CONVERSION = {"1m": 1, "3m": 3, "5m": 5, "15m": 15, "30m": 30, "1h": 60, "2h": 120, "4h": 240, "6h": 360,
+                   "8h": 480, "12h": 720, "1d": 1440, "3d": 4320, "1w": 10080, "1M": 40320}
+
 
 class Contract:
     def __init__(self, platform, contract_data):
@@ -39,15 +42,40 @@ class Contract:
 
 
 class Candle:
-    def __init__(self, candle_data: dict):
-        self.timestamp = int()
-        self.date_time = datetime.date
-        self.time_frame = int() # timeframe in terms of minutes (i.e 60 for 1h timeframe)
+    def __init__(self, platform: str, candle_list: list, time_frame: str):
+        self.platform = platform
+        self.start_timestamp = int()
+        self.end_timestamp = int()
+        self.start_date_time = datetime.date
+        self.end_date_time = datetime.date
+        self.time_frame = TIME_CONVERSION[time_frame]  # timeframe in terms of minutes (i.e 60 for 1h timeframe)
         self.open = float()
         self.high = float()
         self.low = float()
         self.close = float()
-        self.volume = float()
+        self.volume_base = float()  # in BTC
+        self.volume_quote = float()  # in USDT
+        self.num_of_trades = int()
+        if self.platform == "binance_futures":
+            self.get_binance_futures_klines(candle_list)
+
+    def get_binance_futures_klines(self, candle_list):
+        self.start_timestamp = candle_list[0]
+        self.start_date_time = dt.datetime.fromtimestamp(int(self.start_timestamp / 1000)).strftime('%Y/%m/%d %H:%M:%S')
+        self.end_timestamp = candle_list[6]
+        self.end_date_time = dt.datetime.fromtimestamp(int(self.end_timestamp / 1000)).strftime('%Y/%m/%d %H:%M:%S')
+        self.open = candle_list[1]
+        self.high = candle_list[2]
+        self.low = candle_list[3]
+        self.close = candle_list[4]
+        self.volume_base = candle_list[5]
+        self.volume_quote = candle_list[7]
+        self.num_of_trades = candle_list[8]
+
+
+class Order:
+    def __init__(self, order_data):
+        self.order_data = order_data
 
 
 class TechnicalAnalysis:
@@ -71,6 +99,7 @@ class TechnicalAnalysis:
 
 
 class GraphCandles:
+    # maybe it is better to pass dataframe as it would be easier to store them in sqlite3.
     def __init__(self, candle_list: typing.List[Candle]):
         self.df_candles = pd.DataFrame(candle_list,  # index??
                                        columns=["timestamp", "datetime", "timeframe", "open", "high", "low", "close"])
@@ -89,4 +118,3 @@ class GraphCandles:
 
     def remove_from_graph(self, parameter):
         pass
-    
