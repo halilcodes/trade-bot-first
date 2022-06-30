@@ -1,3 +1,9 @@
+import datetime
+import typing
+import datetime as dt
+import pandas as pd
+
+
 class Contract:
     def __init__(self, platform, contract_data):
         self.platform = platform
@@ -31,3 +37,56 @@ class Contract:
         self.order_types = contract_data['orderTypes']
         self.time_in_forces = contract_data['timeInForce']
 
+
+class Candle:
+    def __init__(self, candle_data: dict):
+        self.timestamp = int()
+        self.date_time = datetime.date
+        self.time_frame = int() # timeframe in terms of minutes (i.e 60 for 1h timeframe)
+        self.open = float()
+        self.high = float()
+        self.low = float()
+        self.close = float()
+        self.volume = float()
+
+
+class TechnicalAnalysis:
+    def __init__(self, contract: Contract, candle_list: typing.List[Candle]):
+        self.contract = contract
+
+    def calculate_ema(self, look_back):
+        pass
+
+    def calculate_sma(self, look_back):
+        pass
+
+    def calculate_rsi(self, look_back):
+        pass
+
+    def calculate_kdj(self, look_back):
+        pass
+
+    def calculate_atr(self, look_back):
+        pass
+
+
+class GraphCandles:
+    def __init__(self, candle_list: typing.List[Candle]):
+        self.df_candles = pd.DataFrame(candle_list,  # index??
+                                       columns=["timestamp", "datetime", "timeframe", "open", "high", "low", "close"])
+
+    def draw_graph(self, interval):
+        pass
+
+    def draw_ema(self, interval):
+        pass
+
+    def draw_rsi(self, interval):
+        pass
+
+    def draw_kdj(self, interval):
+        pass
+
+    def remove_from_graph(self, parameter):
+        pass
+    
