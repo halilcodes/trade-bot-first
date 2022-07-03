@@ -115,9 +115,22 @@ class BinanceFuturesClient:
         else:
             print("Binance Futures Client | API Connection Failure. ")
 
-    def get_current_commissions(self):
-        """Not available in Binance Futures API. Still here for organisation purposes."""
-        pass
+    def get_balances(self):
+        endpoint = "/fapi/v1/account"
+        method = "GET"
+        balance = self.make_request(method, endpoint, dict())
+        if balance is not None:
+            return balance
+
+    def get_current_commissions(self, contract: Contract):
+        endpoint = "/fapi/v1/commissionRate"
+        method = "GET"
+        params = dict()
+        params['symbol'] = contract.symbol
+        commissions = self.make_request(method, endpoint, params)
+        if commissions is not None:
+            self.maker_commission = float(commissions["makerCommissionRate"])
+            self.taker_commission = float(commissions["takerCommissionRate"])
 
     def get_base_assets(self) -> list:
         exchange_info = self.make_request("GET", "/fapi/v1/exchangeInfo", dict())
@@ -362,4 +375,5 @@ if __name__ == '__main__':
     # print(f"order_types: {contracts['BTCUSDT'].order_types} | type: {type(contracts['BTCUSDT'].order_types)}")
     # print(f"time_in_forces: {contracts['BTCUSDT'].time_in_forces} |"
     #       f" type: {type(contracts['BTCUSDT'].time_in_forces)}")
+    pprint.pprint(binance.get_balances())
 
