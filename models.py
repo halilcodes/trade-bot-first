@@ -76,6 +76,7 @@ class Candle:
 
 
 class Order:
+    # TODO: write-down here.
     def __init__(self, platform, order_data):
         self.platform = platform
         self.order_data = order_data

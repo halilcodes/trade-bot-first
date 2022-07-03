@@ -7,7 +7,7 @@ import threading
 from keys import *
 import logging
 import typing
-from models import Contract, Candle, Order
+from models import Contract, Candle, Order, Wallet
 import hmac
 import hashlib
 from urllib.parse import urlencode
@@ -37,6 +37,7 @@ class BinanceFuturesClient:
         self._secret_key = secret_key
         self._header = {"X-MBX-APIKEY": self._public_key}
         self.connection_trials = 0
+        self.wallet_info = self.get_balances()
 
         self.maker_commission = 0.02 / 100
         self.taker_commission = 0.04 / 100
@@ -120,7 +121,7 @@ class BinanceFuturesClient:
         method = "GET"
         balance = self.make_request(method, endpoint, dict())
         if balance is not None:
-            return balance
+            return Wallet("binance_futures", balance)
 
     def get_current_commissions(self, contract: Contract):
         endpoint = "/fapi/v1/commissionRate"
