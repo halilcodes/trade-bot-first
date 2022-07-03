@@ -22,6 +22,7 @@ class Contract:
         self.max_order_limit = int()
         self.order_types = list()
         self.time_in_forces = list()
+        self.max_leverage = int()
 
         if self.platform == "binance_futures":
             self.get_binance_futures_contracts(contract_data)
@@ -39,6 +40,7 @@ class Contract:
         self.max_order_limit = int(contract_data['filters'][4]['limit'])
         self.order_types = contract_data['orderTypes']
         self.time_in_forces = contract_data['timeInForce']
+        self.max_leverage = contract_data['leverage']
 
 
 class Candle:
@@ -74,7 +76,8 @@ class Candle:
 
 
 class Order:
-    def __init__(self, order_data):
+    def __init__(self, platform, order_data):
+        self.platform = platform
         self.order_data = order_data
 
 

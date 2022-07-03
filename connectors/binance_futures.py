@@ -7,7 +7,7 @@ import threading
 from keys import *
 import logging
 import typing
-from models import Contract, Candle
+from models import Contract, Candle, Order
 import hmac
 import hashlib
 from urllib.parse import urlencode
@@ -43,6 +43,9 @@ class BinanceFuturesClient:
 
         self.contracts = dict()
         self.candles = dict()
+        self.standing_orders = dict()
+        self.orders_history = dict()
+        self.failed_orders = dict()
 
     def _get_signature(self, data: dict):
         """ HMAC SHA 256 signature provider"""
@@ -123,12 +126,16 @@ class BinanceFuturesClient:
 
     def get_current_contracts(self) -> typing.Dict[str, Contract]:
         exchange_info = self.make_request("GET", "/fapi/v1/exchangeInfo", dict())
+        leverage_finder = self.make_request("GET", "/fapi/v1/leverageBracket", dict())
         assets = self.get_base_assets()
         contract_dict = dict()
         for contract in exchange_info['symbols']:
             if contract['contractType'] == "PERPETUAL" and contract['status'] == "TRADING" \
                     and contract['quoteAsset'] in assets:
                 symbol = contract['symbol']
+                for each in leverage_finder:
+                    if each['symbol'] == symbol:
+                        contract['leverage'] = each["brackets"][0]['initialLeverage']
                 contract_dict[symbol] = Contract("binance_futures", contract)
         if contract_dict is not None:
             return contract_dict
@@ -153,6 +160,24 @@ class BinanceFuturesClient:
         set_leverage = self.make_request(method, endpoint, params)
         if set_leverage is not None:
             return set_leverage
+        else:
+            return None
+
+    def change_margin_type(self, contract: Contract, margin: str):
+        """Margin type can be ISOLATED, CROSSED"""
+        margin = margin.strip().upper()
+        if margin not in ["ISOLATED", "CROSSED"]:
+            return None
+        endpoint = "fapi/v1/marginType"
+        method = "POST"
+        params = dict()
+        params['symbol'] = contract.symbol
+        params['marginType'] = margin
+        change_margin = self.make_request(method, endpoint, params)
+        if change_margin is not None:
+            return change_margin
+        else:
+            return None
 
     def place_market_order(self, contract: Contract, quantity: float, side: str):
         endpoint = "/fapi/v1/order"
@@ -166,6 +191,9 @@ class BinanceFuturesClient:
         return response
 
     def place_limit_order(self, contract: Contract, quantity: float, side: str, price: float, tif="GTC"):
+        while quantity * price < 10:
+            quantity += contract.lot_size
+        quantity = round(quantity, contract.quantity_precision)
         endpoint = "/fapi/v1/order"
         params = dict()
         params['symbol'] = contract.symbol
@@ -186,7 +214,6 @@ class BinanceFuturesClient:
         :param quantity: base asset amount. ie 0.01 = 0.01 of BTC in BTCUSDT contract
         :param side: buy or sell in string format
         :param price: required in stop or limit orders
-        :param order_type:
         :param tif:
                     GTC (Good-Till-Cancel): the order will last until it is completed or you cancel it.
                     IOC (Immediate-Or-Cancel): the order will attempt to execute all or part of it immediately at the
@@ -198,11 +225,15 @@ class BinanceFuturesClient:
         :param stop_price:
         :return: Order object
         """
+        while quantity * price < 10:
+            quantity += contract.lot_size
+        quantity = round(quantity, contract.quantity_precision)
+
         endpoint = "/fapi/v1/order"
         method = "POST"
         params = dict()
         params['symbol'] = contract.symbol
-        params['side'] = side
+        params['side'] = side.strip().upper()
         params['type'] = "STOP"
         params['timeInForce'] = tif
         params['quantity'] = quantity
@@ -211,33 +242,72 @@ class BinanceFuturesClient:
         response = self.make_request(method, endpoint, params)
         return response
 
-    def get_all_standing_orders(self, contract: Contract):
+    def get_orders_for_symbol(self, contract: Contract):
+        """Order Types:
+        NEW, PARTIALLY_FILLED, FILLED, CANCELED, REPLACED, STOPPED, REJECTED, EXPIRED,
+        NEW_INSURANCE - Liquidation with Insurance Fund, NEW_ADL - Counterparty Liquidation
+        Caution!! This function only updates orders dictionaries for the object.
+        `"""
         endpoint = "/fapi/v1/allOrders"
         params = dict()
         params['symbol'] = contract.symbol
-        standing_orders = dict()
+
         orders = self.make_request("GET", endpoint, params)
-        for order in orders:
-            symbol = order['symbol']
-            if order['status'] not in ["FILLED", "CANCELED"]:
-                standing_orders[symbol] = order
-        if len(standing_orders) > 0:
-            return standing_orders
+        if orders is not None:
+            self.standing_orders[contract.symbol], self.orders_history[contract.symbol], self.failed_orders[
+                contract.symbol] = list(), list(), list()
+            for order in orders:
+                symbol = order['symbol']
+                if order['status'] in ["NEW", "PARTIALLY_FILLED"]:
+                    self.standing_orders[symbol].append(order)
+                elif order['status'] == "FILLED":
+                    self.orders_history[symbol].append(order)
+                else:
+                    self.failed_orders[symbol].append(order)
+
+            if len(self.standing_orders) > 0:
+                return self.standing_orders
         else:
             return None
 
-    def get_historical_data(self, contract: Contract, interval: str, limit=500, start_time=None,
-                            end_time=None):
-        # TODO: there might be a better way to store klines that enables me to access them later on easily.
+    def get_all_open_orders(self, contract=None) -> typing.Union[None, typing.List[Order]]:
+        endpoint = "/fapi/v1/openOrders"
+        method = "GET"
+        params = dict()
+        order_result = list()
+        if contract is not None:
+            params['symbol'] = contract.symbol
+
+        open_orders = self.make_request(method, endpoint, params)
+        # open orders returns list of dictionaries
+        if open_orders is not None:
+            for order in open_orders:
+                new = Order("binance_futures", order)
+                order_result.append(new)
+            return order_result
+        else:
+            return None
+
+    def get_historical_data(self, contract: Contract, interval: str, limit=500, start_time=None, end_time=None,
+                            is_timestamp=True) -> typing.Union[None, typing.Dict[str, typing.List[Candle]]]:
         """
         Get historical candles as Candle object list.
-        :param contract:
-        :param interval:
+        :param contract: Contract object of interested contract.
+        :param interval: m -> minutes; h -> hours; d -> days; w -> weeks; M -> months
+                        1m, 3m, 5m, 15m, 30m, 1h, 2h, 4h, 6h, 8h, 12h, 1d, 3d, 1w, 1M
         :param limit: Default 500; max 1500.
-        :param start_time:
-        :param end_time:
-        :return:
+        :param start_time: in timestamp format OR '%Y/%m/%d %H:%M:%S' string format.
+        :param end_time: im timestamp format '%Y/%m/%d %H:%M:%S' string format.
+        :param is_timestamp: True if start_time and end_time are in timestamp format, false if string format.
+        :return: Dictionary with a key of start time - end time - interval and value of a list of candles as Candle
+                 objects.
         """
+        if not is_timestamp:
+            if start_time is not None:
+                start_time = time.mktime(dt.datetime.strptime(start_time, '%Y/%m/%d %H:%M:%S').timetuple()) * 1000
+            if end_time is not None:
+                end_time = time.mktime(dt.datetime.strptime(end_time, '%Y/%m/%d %H:%M:%S').timetuple()) * 1000
+
         if limit > 1500:
             limit = 1500
         candle_dict = dict()
@@ -246,23 +316,24 @@ class BinanceFuturesClient:
         params = dict()
         params['symbol'] = contract.symbol
         params['interval'] = interval
-        if start_time and end_time:
-            params['startTime'] = start_time
-            params['endTime'] = end_time
+        if start_time is not None:
+            params['startTime'] = int(start_time)
+        if end_time is not None:
+            params['endTime'] = int(end_time)
         params['limit'] = limit
         klines = self.make_request(method, endpoint, params)
         if klines is not None:
-            candle_dict[contract.symbol] = dict()
-            if start_time is None and end_time is None:
-                start_time = float(klines[-1][0])
-                end_time = float(klines[0][6])
 
-            start_in_dt = dt.datetime.fromtimestamp(int(start_time / 1000)).strftime('%Y/%m/%d %H:%M:%S')
-            end_in_dt = dt.datetime.fromtimestamp(int(end_time / 1000)).strftime('%Y/%m/%d %H:%M:%S')
-            date_label = f"{start_in_dt}-{end_in_dt}-{interval}"
-            candle_dict[contract.symbol][date_label] = list()
+            first_candle_ts = Candle("binance_futures", klines[0], "15m").start_timestamp
+            last_candle_ts = Candle("binance_futures", klines[-1], "15m").end_timestamp
+
+            start_in_dt = dt.datetime.fromtimestamp(int(first_candle_ts / 1000)).strftime('%Y/%m/%d %H:%M:%S')
+            end_in_dt = dt.datetime.fromtimestamp(int(last_candle_ts / 1000)).strftime('%Y/%m/%d %H:%M:%S')
+
+            date_label = f"{start_in_dt}**{end_in_dt}**{interval}"
+            candle_dict[date_label] = list()
             for candle in klines:
-                candle_dict[contract.symbol][date_label].append(Candle("binance_futures", candle, interval))
+                candle_dict[date_label].append(Candle("binance_futures", candle, interval))
             return candle_dict
         else:
             return None
@@ -291,11 +362,4 @@ if __name__ == '__main__':
     # print(f"order_types: {contracts['BTCUSDT'].order_types} | type: {type(contracts['BTCUSDT'].order_types)}")
     # print(f"time_in_forces: {contracts['BTCUSDT'].time_in_forces} |"
     #       f" type: {type(contracts['BTCUSDT'].time_in_forces)}")
-    link_1h = binance.get_historical_data(linkusdt, "15m")
-    # pprint.pprint(link_1h)
-    for symbol, value_1 in link_1h.items():
-        for _, value in value_1.items():
-            print(len(value))
-
-
 
