@@ -12,6 +12,7 @@ import hmac
 import hashlib
 from urllib.parse import urlencode
 import datetime as dt
+from dateutil.relativedelta import relativedelta
 
 # TODO: All print statements will be converted to logging entries.
 logger = logging.getLogger()
@@ -28,7 +29,8 @@ class BinanceFuturesClient:
             self._wss_url = "wss://testnet.binancefuture.com/ws"
             self.connection_type = "Testnet"
         else:
-            self._base_url = "https://fapi.binance.com"
+            # self._base_url = "https://fapi.binance.com"
+            self._base_url = "https://api.binance.com/sapi/v1"
             self._wss_url = "wss://fstream.binance.com/ws"
             self.connection_type = "Real Account"
 
@@ -37,7 +39,7 @@ class BinanceFuturesClient:
         self._secret_key = secret_key
         self._header = {"X-MBX-APIKEY": self._public_key}
         self.connection_trials = 0
-        self.wallet_info = self.get_balances()
+        # self.wallet_info = self.get_balances()
 
         self.maker_commission = 0.02 / 100
         self.taker_commission = 0.04 / 100
@@ -229,7 +231,7 @@ class BinanceFuturesClient:
         :param side: buy or sell in string format
         :param price: required in stop or limit orders
         :param tif:
-                    GTC (Good-Till-Cancel): the order will last until it is completed or you cancel it.
+                    GTC (Good-Till-Cancel): the order will last until it is completed, or you cancel it.
                     IOC (Immediate-Or-Cancel): the order will attempt to execute all or part of it immediately at the
                      price and quantity available, then cancel any remaining, unfilled part of the order.
                      If no quantity is available at the chosen price when you place the order, it will be canceled
@@ -352,12 +354,87 @@ class BinanceFuturesClient:
         else:
             return None
 
+    def get_lvl2_data(self, symbol: str, start_time, end_time, is_timestamp=False, data_type="T_DEPTH"):
+        desired_symbols = ["BTCUSDT", "ADAUSDT", "LINKUSDT", "MANAUSDT", "ETHUSDT", "LTCUSDT", "1000SHIBUSDT",
+                           "SOLUSDT", "AVAXUSDT", "DYDXUSDT", "BCHUSDT", "XRPUSDT", "EOSUSDT", "TRXUSDT", "ETCUSDT",
+                           "BNBUSDT", "DOGEUSDT", "MKRUSDT", "BATUSDT", "ANKRUSDT"]
+
+        initial_time = "2020/07/01 00:00:01"
+        """
+        It is recommended that you request within 1-3 months length each time,
+         especially for tick-level order book data.
+        :param contract:
+        :param start_time:
+        :param end_time:
+        :param data_type:
+        :param is_timestamp:
+        :return:
+        """
+
+        if not is_timestamp:
+            if start_time is not None:
+                start_time = time.mktime(dt.datetime.strptime(start_time, '%Y/%m/%d %H:%M:%S').timetuple()) * 1000
+            if end_time is not None:
+                end_time = time.mktime(dt.datetime.strptime(end_time, '%Y/%m/%d %H:%M:%S').timetuple()) * 1000
+
+        endpoint = "/futuresHistDataId"
+        method = "POST"
+        params = dict()
+        params['symbol'] = symbol.upper().strip()
+        params['startTime'] = int(start_time)
+        params['endTime'] = int(end_time)
+        params["dataType"] = data_type
+
+        depth_data = self.make_request(method, endpoint, params)
+        if depth_data is not None:
+            download_id = depth_data['id']
+            print(f"download id: {download_id},"
+                  f" start time={dt.datetime.fromtimestamp(start_time/1000).strftime('%Y/%m/%d %H:%M:%S')},"
+                  f"end time: = {dt.datetime.fromtimestamp(end_time/1000).strftime('%Y/%m/%d %H:%M:%S')}")
+            return depth_data
+        else:
+            return "ID Request gone wrong"
+
+    def id_to_link(self, download_id):
+        params = dict()
+        params['downloadId'] = download_id
+        params['timestamp'] = int(time.time() * 1000)
+        params['signature'] = self._get_signature(params)
+        endpoint = "/downloadLink"
+        full_url = self._base_url + endpoint
+        link = requests.get(full_url, params, headers=self._header)
+        print(link.status_code)
+        print(link.json())
+        if link is not None:
+            return link.json()
+        else:
+            return "LINK Request gone wrong"
+
+    def foo(self, first_start_time, monthly_intervals: int, repetition=2):
+        # TODO: I wrote this to get download id's in a bulk but its half-done.
+        start_time = dt.datetime.strptime(first_start_time, '%Y/%m/%d %H:%M:%S')
+        for i in range(repetition):
+            end_time = start_time + relativedelta(months=monthly_intervals)
+            start_in_str = dt.datetime.strftime(start_time, '%Y/%m/%d %H:%M:%S')
+            end_in_str = dt.datetime.strftime(end_time, '%Y/%m/%d %H:%M:%S')
+            btc_lv2 = binance.get_lvl2_data("BTCUSDT", start_time=start_in_str, end_time=end_in_str)
+            start_time = end_time
+
+            with open("../depth_datas/btcusdt_id_list.txt", "a") as file:
+                file.write("*" * 50)
+                file.write("\n")
+                file.write(f"start_time: {start_in_str} end_time: {end_in_str} id: {btc_lv2}")
+                file.write('\n')
+        # initial_start_time = "2021/06/01 00:00:01"
+        # binance.foo(initial_start_time, 2, 2)
+
 
 if __name__ == '__main__':
-    binance = BinanceFuturesClient(BINANCE_TESTNET_API_PUBLIC, BINANCE_TESTNET_API_SECRET, testnet=True)
-    contracts = binance.get_current_contracts()
-    btcusdt = contracts['BTCUSDT']
-    linkusdt = contracts['LINKUSDT']
+    binance = BinanceFuturesClient(BINANCE_REAL_API_PUBLIC, BINANCE_REAL_API_SECRET, testnet=False)
+
+    # contracts = binance.get_current_contracts()
+    # btcusdt = contracts['BTCUSDT']
+    # linkusdt = contracts['LINKUSDT']
     # print(f"platform: {contracts['BTCUSDT'].platform} | type: {type(contracts['BTCUSDT'].platform)}")
     # print(f"symbol: {contracts['BTCUSDT'].symbol} | type: {type(contracts['BTCUSDT'].symbol)}")
     # print(f"base_asset: {contracts['BTCUSDT'].base_asset} | type: {type(contracts['BTCUSDT'].base_asset)}")
@@ -376,5 +453,5 @@ if __name__ == '__main__':
     # print(f"order_types: {contracts['BTCUSDT'].order_types} | type: {type(contracts['BTCUSDT'].order_types)}")
     # print(f"time_in_forces: {contracts['BTCUSDT'].time_in_forces} |"
     #       f" type: {type(contracts['BTCUSDT'].time_in_forces)}")
-    pprint.pprint(binance.get_balances())
 
+    print(binance.id_to_link(615764))

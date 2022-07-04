@@ -3,8 +3,8 @@ import typing
 import datetime as dt
 import pandas as pd
 
-TIME_CONVERSION = {"1m": 1, "3m": 3, "5m": 5, "15m": 15, "30m": 30, "1h": 60, "2h": 120, "4h": 240, "6h": 360,
-                   "8h": 480, "12h": 720, "1d": 1440, "3d": 4320, "1w": 10080, "1M": 40320}
+TIME_ENUM_CONVERSION = {"1m": 1, "3m": 3, "5m": 5, "15m": 15, "30m": 30, "1h": 60, "2h": 120, "4h": 240, "6h": 360,
+                        "8h": 480, "12h": 720, "1d": 1440, "3d": 4320, "1w": 10080, "1M": 40320}
 
 
 class Contract:
@@ -50,7 +50,7 @@ class Candle:
         self.end_timestamp = int()
         self.start_date_time = datetime.date
         self.end_date_time = datetime.date
-        self.time_frame = TIME_CONVERSION[time_frame]  # timeframe in terms of minutes (i.e 60 for 1h timeframe)
+        self.time_frame = TIME_ENUM_CONVERSION[time_frame]  # timeframe in terms of minutes (i.e 60 for 1h timeframe)
         self.open = float()
         self.high = float()
         self.low = float()
