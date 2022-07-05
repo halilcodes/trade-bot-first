@@ -427,10 +427,11 @@ class BinanceFuturesClient:
                 file.write('\n')
         # initial_start_time = "2021/06/01 00:00:01"
         # binance.foo(initial_start_time, 2, 2)
+        # print(binance.id_to_link(615764))
 
 
 if __name__ == '__main__':
-    binance = BinanceFuturesClient(BINANCE_REAL_API_PUBLIC, BINANCE_REAL_API_SECRET, testnet=False)
+    binance = BinanceFuturesClient(BINANCE_TESTNET_API_PUBLIC, BINANCE_TESTNET_API_SECRET, testnet=True)
 
     # contracts = binance.get_current_contracts()
     # btcusdt = contracts['BTCUSDT']
@@ -454,4 +455,4 @@ if __name__ == '__main__':
     # print(f"time_in_forces: {contracts['BTCUSDT'].time_in_forces} |"
     #       f" type: {type(contracts['BTCUSDT'].time_in_forces)}")
 
-    print(binance.id_to_link(615764))
+

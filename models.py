@@ -2,6 +2,7 @@ import datetime
 import typing
 import datetime as dt
 import pandas as pd
+import pprint
 
 TIME_ENUM_CONVERSION = {"1m": 1, "3m": 3, "5m": 5, "15m": 15, "30m": 30, "1h": 60, "2h": 120, "4h": 240, "6h": 360,
                         "8h": 480, "12h": 720, "1d": 1440, "3d": 4320, "1w": 10080, "1M": 40320}
@@ -85,8 +86,8 @@ class Order:
 class Wallet:
     def __init__(self, platform: str, wallet_data: dict):
         self.platform = platform
-        # self.update_timestamp = int()
-        # self.update_dt = dt.datetime.utcnow()
+        self.last_updated = dt.datetime.utcnow().strftime('%Y/%m/%d %H:%M:%S')
+        self.last_updated_ts = int(dt.datetime.timestamp(dt.datetime.utcnow()))
         self.wallet_info = dict()
         self.position_info = dict()
 
@@ -105,7 +106,7 @@ class Wallet:
         # TODO: entries need revision.
         self.wallet_info = dict()
         self.position_info = dict()
-        for asset in data['assets'][0]:
+        for asset in data['assets']:
             symbol = asset['asset']
             self.wallet_info[symbol] = {'available_balance': float(asset['availableBalance']),
                                         'wallet_balance': float(asset['walletBalance']),
@@ -119,8 +120,8 @@ class Wallet:
         self.fee_tier = int(data['feeTier'])
         self.total_required_margin = float(data['totalPositionInitialMargin'])
         self.total_unrealised_pnl = float(data['totalUnrealizedProfit'])
-        for position in data['positions'][0]:
-            if position['positionAmt'] != '0':
+        for position in data['positions']:
+            if float(position['positionAmt']) != 0:
                 symbol = position['symbol']
                 self.position_info[symbol] = {'entry_price': float(position['entryPrice']),
                                               'required_margin': float(position['initialMargin']),
@@ -128,6 +129,10 @@ class Wallet:
                                               'leverage': int(position['leverage']),
                                               'position_amount': float(position['positionAmt']),
                                               'unrealised_pnl': float(position['unrealizedProfit'])}
+
+    def update_wallet_time(self):
+        self.last_updated = dt.datetime.utcnow().strftime('%Y/%m/%d %H:%M:%S')
+        self.last_updated_ts = int(dt.datetime.timestamp(dt.datetime.utcnow()))
 
 
 class TechnicalAnalysis:
