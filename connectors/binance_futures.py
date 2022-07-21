@@ -385,13 +385,16 @@ class BinanceFuturesClient:
         params['endTime'] = int(end_time)
         params["dataType"] = data_type
 
-        depth_data = self.make_request(method, endpoint, params)
-        if depth_data is not None:
-            download_id = depth_data['id']
+        id_info = self.make_request(method, endpoint, params)
+        if id_info is not None:
+            print(id_info)
+            print("*"*20)
+            download_id = id_info['id']
+            print(download_id)
             print(f"download id: {download_id},"
                   f" start time={dt.datetime.fromtimestamp(start_time/1000).strftime('%Y/%m/%d %H:%M:%S')},"
                   f"end time: = {dt.datetime.fromtimestamp(end_time/1000).strftime('%Y/%m/%d %H:%M:%S')}")
-            return depth_data
+            return id_info
         else:
             return "ID Request gone wrong"
 
@@ -406,33 +409,40 @@ class BinanceFuturesClient:
         print(link.status_code)
         print(link.json())
         if link is not None:
+            with open(f"../depth_datas/LINKUSDT_link_list.json", "a") as file:
+                json.dump(link.json(), file)
+                file.write('\n')
             return link.json()
         else:
             return "LINK Request gone wrong"
 
-    def foo(self, first_start_time, monthly_intervals: int, repetition=2):
+    def foo(self, first_start_time, daily_interval=7, repetition=1):
         # TODO: I wrote this to get download id's in a bulk but its half-done.
         start_time = dt.datetime.strptime(first_start_time, '%Y/%m/%d %H:%M:%S')
+        symbol = "LINKUSDT"
         for i in range(repetition):
-            end_time = start_time + relativedelta(months=monthly_intervals)
+            end_time = start_time + relativedelta(days=daily_interval)
             start_in_str = dt.datetime.strftime(start_time, '%Y/%m/%d %H:%M:%S')
             end_in_str = dt.datetime.strftime(end_time, '%Y/%m/%d %H:%M:%S')
-            btc_lv2 = binance.get_lvl2_data("BTCUSDT", start_time=start_in_str, end_time=end_in_str)
-            start_time = end_time
+            btc_lv2 = self.get_lvl2_data(symbol, start_time=start_in_str, end_time=end_in_str)
 
-            with open("../depth_datas/btcusdt_id_list.txt", "a") as file:
+            with open(f"../depth_datas/{symbol}_id_list.txt", "a") as file:
                 file.write("*" * 50)
                 file.write("\n")
                 file.write(f"start_time: {start_in_str} end_time: {end_in_str} id: {btc_lv2}")
                 file.write('\n')
+            start_time = end_time
+
         # initial_start_time = "2021/06/01 00:00:01"
         # binance.foo(initial_start_time, 2, 2)
         # print(binance.id_to_link(615764))
 
 
 if __name__ == '__main__':
-    binance = BinanceFuturesClient(BINANCE_TESTNET_API_PUBLIC, BINANCE_TESTNET_API_SECRET, testnet=True)
-
+    bin_real = BinanceFuturesClient(BINANCE_REAL_API_PUBLIC, BINANCE_REAL_API_SECRET, testnet=False)
+    bin_real.id_to_link("626603")
+    # binance = BinanceFuturesClient(BINANCE_TESTNET_API_PUBLIC, BINANCE_TESTNET_API_SECRET, testnet=True)
+    
     # contracts = binance.get_current_contracts()
     # btcusdt = contracts['BTCUSDT']
     # linkusdt = contracts['LINKUSDT']
