@@ -419,7 +419,7 @@ class BinanceFuturesClient:
     def foo(self, first_start_time, daily_interval=7, repetition=1):
         # TODO: I wrote this to get download id's in a bulk but its half-done.
         start_time = dt.datetime.strptime(first_start_time, '%Y/%m/%d %H:%M:%S')
-        symbol = "LINKUSDT"
+        symbol = "ETHUSDT"
         for i in range(repetition):
             end_time = start_time + relativedelta(days=daily_interval)
             start_in_str = dt.datetime.strftime(start_time, '%Y/%m/%d %H:%M:%S')
@@ -440,7 +440,9 @@ class BinanceFuturesClient:
 
 if __name__ == '__main__':
     bin_real = BinanceFuturesClient(BINANCE_REAL_API_PUBLIC, BINANCE_REAL_API_SECRET, testnet=False)
-    bin_real.id_to_link("626606")
+    # bin_real.foo(first_start_time="2022/06/17 01:00:00", daily_interval=30)
+    bin_real.id_to_link(626631)
+    
     # binance = BinanceFuturesClient(BINANCE_TESTNET_API_PUBLIC, BINANCE_TESTNET_API_SECRET, testnet=True)
     
     # contracts = binance.get_current_contracts()
