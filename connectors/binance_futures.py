@@ -440,7 +440,7 @@ class BinanceFuturesClient:
 
 if __name__ == '__main__':
     bin_real = BinanceFuturesClient(BINANCE_REAL_API_PUBLIC, BINANCE_REAL_API_SECRET, testnet=False)
-    bin_real.id_to_link("626603")
+    bin_real.id_to_link("626606")
     # binance = BinanceFuturesClient(BINANCE_TESTNET_API_PUBLIC, BINANCE_TESTNET_API_SECRET, testnet=True)
     
     # contracts = binance.get_current_contracts()
