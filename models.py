@@ -88,15 +88,18 @@ class Wallet:
         self.platform = platform
         self.last_updated = dt.datetime.utcnow().strftime('%Y/%m/%d %H:%M:%S')
         self.last_updated_ts = int(dt.datetime.timestamp(dt.datetime.utcnow()))
-        self.wallet_info = dict()
+        self.fee_tier = int()
+        self.asset_info = dict()
         self.position_info = dict()
 
-        self.available_balance = float()
         self.can_deposit = bool()
         self.can_trade = bool()
         self.can_withdraw = bool()
+
+        self.available_balance = float()
+
         self.total_balance = float()
-        self.fee_tier = int()
+
         self.total_required_margin = float()
         self.total_unrealised_pnl = float()
         if self.platform == "binance_futures":
@@ -104,31 +107,35 @@ class Wallet:
 
     def get_binance_wallet_info(self, data):
         # TODO: entries need revision.
-        self.wallet_info = dict()
+        self.asset_info = dict()
         self.position_info = dict()
-        for asset in data['assets']:
-            symbol = asset['asset']
-            self.wallet_info[symbol] = {'available_balance': float(asset['availableBalance']),
-                                        'wallet_balance': float(asset['walletBalance']),
-                                        'unrealised_pnl': float(asset['unrealizedProfit']),
-                                        'required_margin': float(asset['initialMargin'])}
-        self.available_balance = float(data['availableBalance'])
-        self.total_balance = float(data['maxWithdrawAmount'])
-        self.can_deposit = bool(data['canDeposit'])
-        self.can_trade = bool(data['canTrade'])
-        self.can_withdraw = bool(data['canWithdraw'])
-        self.fee_tier = int(data['feeTier'])
-        self.total_required_margin = float(data['totalPositionInitialMargin'])
-        self.total_unrealised_pnl = float(data['totalUnrealizedProfit'])
-        for position in data['positions']:
-            if float(position['positionAmt']) != 0:
-                symbol = position['symbol']
-                self.position_info[symbol] = {'entry_price': float(position['entryPrice']),
-                                              'required_margin': float(position['initialMargin']),
-                                              'is_isolated': bool(position['isolated']),
-                                              'leverage': int(position['leverage']),
-                                              'position_amount': float(position['positionAmt']),
-                                              'unrealised_pnl': float(position['unrealizedProfit'])}
+        try:
+            for asset in data['assets']:
+                if float(asset['availableBalance']) != 0 or float(asset['walletBalance']) != 0:
+                    symbol = asset['asset']
+                    self.asset_info[symbol] = {'available_balance': float(asset['availableBalance']),
+                                               'wallet_balance': float(asset['walletBalance']),
+                                               'unrealised_pnl': float(asset['unrealizedProfit']),
+                                               'required_margin': float(asset['initialMargin'])}
+            self.available_balance = float(data['availableBalance'])
+            self.total_balance = float(data['totalWalletBalance'])
+            self.can_deposit = bool(data['canDeposit'])
+            self.can_trade = bool(data['canTrade'])
+            self.can_withdraw = bool(data['canWithdraw'])
+            self.fee_tier = int(data['feeTier'])
+            self.total_required_margin = float(data['totalPositionInitialMargin'])
+            self.total_unrealised_pnl = float(data['totalUnrealizedProfit'])
+            for position in data['positions']:
+                if float(position['positionAmt']) != 0:
+                    symbol = position['symbol']
+                    self.position_info[symbol] = {'entry_price': float(position['entryPrice']),
+                                                  'required_margin': float(position['initialMargin']),
+                                                  'is_isolated': bool(position['isolated']),
+                                                  'leverage': int(position['leverage']),
+                                                  'position_amount': float(position['positionAmt']),
+                                                  'unrealised_pnl': float(position['unrealizedProfit'])}
+        except KeyError:
+            print("Some areas are not found while retrieving wallet info")
 
     def update_wallet_time(self):
         self.last_updated = dt.datetime.utcnow().strftime('%Y/%m/%d %H:%M:%S')

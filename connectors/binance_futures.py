@@ -29,8 +29,8 @@ class BinanceFuturesClient:
             self._wss_url = "wss://testnet.binancefuture.com/ws"
             self.connection_type = "Testnet"
         else:
-            # self._base_url = "https://fapi.binance.com"
-            self._base_url = "https://api.binance.com/sapi/v1"
+            self._base_url = "https://fapi.binance.com"
+            # self._base_url = "https://api.binance.com/sapi/v1"    # for depth level data only
             self._wss_url = "wss://fstream.binance.com/ws"
             self.connection_type = "Real Account"
 
@@ -44,7 +44,7 @@ class BinanceFuturesClient:
         self.maker_commission = 0.02 / 100
         self.taker_commission = 0.04 / 100
 
-        self.contracts = dict()
+        self.contracts = self.get_current_contracts()
         self.candles = dict()
         self.standing_orders = dict()
         self.orders_history = dict()
@@ -107,7 +107,10 @@ class BinanceFuturesClient:
             print("Binance Futures Client | IP has been auto-banned for continuing to send requests"
                   " after receiving 429 codes. ")
         elif code // 100 == 4:
-            print(f"Binance Futures Client | {code} code error, malformed request. {response.json()['msg']}")
+            try:
+                print(f"Binance Futures Client | {code} code error, malformed request. {response.json()['msg']}")
+            except KeyError:
+                print(f"Binance Futures Client | {code} code error, malformed request. {response.json()['message']}")
         return False
 
     def check_api_connection(self):
@@ -119,7 +122,7 @@ class BinanceFuturesClient:
             print("Binance Futures Client | API Connection Failure. ")
 
     def get_balances(self):
-        endpoint = "/fapi/v1/account"
+        endpoint = "/fapi/v2/account"
         method = "GET"
         balance = self.make_request(method, endpoint, dict())
         if balance is not None:
@@ -156,6 +159,14 @@ class BinanceFuturesClient:
         if contract_dict is not None:
             return contract_dict
 
+    def get_candle_update(self, contract: Contract, timeframe="1d", limit=1):
+        endpoint = "/fapi/v1/continuousKlines"
+        params = {"pair": contract.symbol, "contractType": "PERPETUAL", "interval": timeframe, "limit": limit}
+        interval_info = self.make_request("GET", endpoint, params)
+        if interval_info:
+            for each in interval_info:
+                return Candle("binance_futures", each, timeframe)
+
     def get_price_update(self, contract: Contract, count=1) -> dict:
         endpoint = "/fapi/v1/trades"
         params = {'symbol': contract.symbol, 'limit': count}
@@ -164,7 +175,7 @@ class BinanceFuturesClient:
         last_trade = {"price": float(response['price']),
                       "quantity": float(response['qty']),
                       "time": int(response['time']),
-                      "buyer_filled": bool(response['isBuyerMaker'])}
+                      "bid_filled": bool(response['isBuyerMaker'])}
         return last_trade
 
     def adjust_leverage(self, contract: Contract, leverage: int):
@@ -304,6 +315,18 @@ class BinanceFuturesClient:
         else:
             return None
 
+    def cancel_open_orders(self, contract: Contract, countdown=2):
+        endpoint = "/fapi/v1/countdownCancelAll"
+        method = "POST"
+        params = dict()
+        params['symbol'] = contract.symbol
+        if countdown < 1:
+            countdown = 1
+        params['countdownTime'] = int(countdown * 1000)
+        cancel_req = self.make_request(method, endpoint, params)
+        if cancel_req is not None:
+            return cancel_req
+
     def get_historical_data(self, contract: Contract, interval: str, limit=500, start_time=None, end_time=None,
                             is_timestamp=True) -> typing.Union[None, typing.Dict[str, typing.List[Candle]]]:
         """
@@ -354,7 +377,7 @@ class BinanceFuturesClient:
         else:
             return None
 
-    def get_lvl2_data(self, symbol: str, start_time, end_time, is_timestamp=False, data_type="T_DEPTH"):
+    def request_lvl2_id(self, symbol: str, start_time, end_time, is_timestamp=False, data_type="T_DEPTH"):
         desired_symbols = ["BTCUSDT", "ADAUSDT", "LINKUSDT", "MANAUSDT", "ETHUSDT", "LTCUSDT", "1000SHIBUSDT",
                            "SOLUSDT", "AVAXUSDT", "DYDXUSDT", "BCHUSDT", "XRPUSDT", "EOSUSDT", "TRXUSDT", "ETCUSDT",
                            "BNBUSDT", "DOGEUSDT", "MKRUSDT", "BATUSDT", "ANKRUSDT"]
@@ -416,15 +439,14 @@ class BinanceFuturesClient:
         else:
             return "LINK Request gone wrong"
 
-    def foo(self, first_start_time, daily_interval=7, repetition=1):
+    def get_lv2_id(self, symbol: str, first_start_time: str, daily_interval=7, repetition=1):
         # TODO: I wrote this to get download id's in a bulk but its half-done.
         start_time = dt.datetime.strptime(first_start_time, '%Y/%m/%d %H:%M:%S')
-        symbol = "ETHUSDT"
         for i in range(repetition):
             end_time = start_time + relativedelta(days=daily_interval)
             start_in_str = dt.datetime.strftime(start_time, '%Y/%m/%d %H:%M:%S')
             end_in_str = dt.datetime.strftime(end_time, '%Y/%m/%d %H:%M:%S')
-            btc_lv2 = self.get_lvl2_data(symbol, start_time=start_in_str, end_time=end_in_str)
+            btc_lv2 = self.request_lvl2_id(symbol, start_time=start_in_str, end_time=end_in_str)
 
             with open(f"../depth_datas/{symbol}_id_list.txt", "a") as file:
                 file.write("*" * 50)
@@ -433,38 +455,31 @@ class BinanceFuturesClient:
                 file.write('\n')
             start_time = end_time
 
-        # initial_start_time = "2021/06/01 00:00:01"
-        # binance.foo(initial_start_time, 2, 2)
-        # print(binance.id_to_link(615764))
-
 
 if __name__ == '__main__':
-    bin_real = BinanceFuturesClient(BINANCE_REAL_API_PUBLIC, BINANCE_REAL_API_SECRET, testnet=False)
-    # bin_real.foo(first_start_time="2022/06/17 01:00:00", daily_interval=30)
-    bin_real.id_to_link(626640)
-    
-    # binance = BinanceFuturesClient(BINANCE_TESTNET_API_PUBLIC, BINANCE_TESTNET_API_SECRET, testnet=True)
-    
-    # contracts = binance.get_current_contracts()
-    # btcusdt = contracts['BTCUSDT']
-    # linkusdt = contracts['LINKUSDT']
-    # print(f"platform: {contracts['BTCUSDT'].platform} | type: {type(contracts['BTCUSDT'].platform)}")
-    # print(f"symbol: {contracts['BTCUSDT'].symbol} | type: {type(contracts['BTCUSDT'].symbol)}")
-    # print(f"base_asset: {contracts['BTCUSDT'].base_asset} | type: {type(contracts['BTCUSDT'].base_asset)}")
-    # print(f"quote_asset: {contracts['BTCUSDT'].quote_asset} | type: {type(contracts['BTCUSDT'].quote_asset)}")
-    # print(f"margin_asset: {contracts['BTCUSDT'].margin_asset} | type: {type(contracts['BTCUSDT'].margin_asset)}")
-    # print(f"margin_percent: {contracts['BTCUSDT'].margin_percent} |"
-    #       f" type: {type(contracts['BTCUSDT'].margin_percent)}")
-    # print(f"price_precision: {contracts['BTCUSDT'].price_precision} |"
-    #       f" type: {type(contracts['BTCUSDT'].price_precision)}")
-    # print(f"quantity_precision: {contracts['BTCUSDT'].quantity_precision} |"
-    #       f" type: {type(contracts['BTCUSDT'].quantity_precision)}")
-    # print(f"tick_size: {contracts['BTCUSDT'].tick_size} | type: {type(contracts['BTCUSDT'].tick_size)}")
-    # print(f"lot_size: {contracts['BTCUSDT'].lot_size} | type: {type(contracts['BTCUSDT'].lot_size)}")
-    # print(f"max_order_limit: {contracts['BTCUSDT'].max_order_limit} |"
-    #       f" type: {type(contracts['BTCUSDT'].max_order_limit)}")
-    # print(f"order_types: {contracts['BTCUSDT'].order_types} | type: {type(contracts['BTCUSDT'].order_types)}")
-    # print(f"time_in_forces: {contracts['BTCUSDT'].time_in_forces} |"
-    #       f" type: {type(contracts['BTCUSDT'].time_in_forces)}")
+    binance = BinanceFuturesClient(BINANCE_TESTNET_API_PUBLIC, BINANCE_TESTNET_API_SECRET, testnet=True)
+    # binance = BinanceFuturesClient(BINANCE_REAL_API_PUBLIC, BINANCE_REAL_API_SECRET, testnet=False)
+    btcusdt = binance.contracts['BTCUSDT']
+    linkusdt = binance.contracts['LINKUSDT']
+    # print(f"platform: {binance.contracts['BTCUSDT'].platform} | type: {type(binance.contracts['BTCUSDT'].platform)}")
+    # print(f"symbol: {binance.contracts['BTCUSDT'].symbol} | type: {type(binance.contracts['BTCUSDT'].symbol)}")
+    # print(f"base_asset: {binance.contracts['BTCUSDT'].base_asset} | type: {type(binance.contracts['BTCUSDT'].base_asset)}")
+    # print(f"quote_asset: {binance.contracts['BTCUSDT'].quote_asset} | type: {type(binance.contracts['BTCUSDT'].quote_asset)}")
+    # print(f"margin_asset: {binance.contracts['BTCUSDT'].margin_asset} | type: {type(binance.contracts['BTCUSDT'].margin_asset)}")
+    # print(f"margin_percent: {binance.contracts['BTCUSDT'].margin_percent} |"
+    #       f" type: {type(binance.contracts['BTCUSDT'].margin_percent)}")
+    # print(f"price_precision: {binance.contracts['BTCUSDT'].price_precision} |"
+    #       f" type: {type(binance.contracts['BTCUSDT'].price_precision)}")
+    # print(f"quantity_precision: {binance.contracts['BTCUSDT'].quantity_precision} |"
+    #       f" type: {type(binance.contracts['BTCUSDT'].quantity_precision)}")
+    # print(f"tick_size: {binance.contracts['BTCUSDT'].tick_size} | type: {type(binance.contracts['BTCUSDT'].tick_size)}")
+    # print(f"lot_size: {binance.contracts['BTCUSDT'].lot_size} | type: {type(binance.contracts['BTCUSDT'].lot_size)}")
+    # print(f"max_order_limit: {binance.contracts['BTCUSDT'].max_order_limit} |"
+    #       f" type: {type(binance.contracts['BTCUSDT'].max_order_limit)}")
+    # print(f"order_types: {binance.contracts['BTCUSDT'].order_types} | type: {type(binance.contracts['BTCUSDT'].order_types)}")
+    # print(f"time_in_forces: {binance.contracts['BTCUSDT'].time_in_forces} |"
+    #       f" type: {type(binance.contracts['BTCUSDT'].time_in_forces)}")
+    # print("*" * 50)
+    # print([contract for contract in binance.contracts])
 
 
