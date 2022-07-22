@@ -13,13 +13,14 @@ import hashlib
 from urllib.parse import urlencode
 import datetime as dt
 from dateutil.relativedelta import relativedelta
+import asyncio
 
 # TODO: All print statements will be converted to logging entries.
 logger = logging.getLogger()
 
 
 def timestamp():
-    return int(time.time() * 1000) - 500
+    return int(time.time() * 1000)
 
 
 class BinanceFuturesClient:
@@ -39,7 +40,7 @@ class BinanceFuturesClient:
         self._secret_key = secret_key
         self._header = {"X-MBX-APIKEY": self._public_key}
         self.connection_trials = 0
-        # self.wallet_info = self.get_balances()
+        self.wallet_info = self.get_balances()
 
         self.maker_commission = 0.02 / 100
         self.taker_commission = 0.04 / 100
@@ -55,6 +56,14 @@ class BinanceFuturesClient:
         key = self._secret_key.encode()
         payload = urlencode(data).encode()
         return hmac.new(key, payload, hashlib.sha256).hexdigest()
+
+    def connection_check_as(self):
+        server_time = requests.get(self._base_url+"/fapi/v1/time")
+        return server_time.json()
+
+    def connection_check(self):
+        server_time = requests.get(self._base_url+"/fapi/v1/time")
+        return server_time.json()
 
     def make_request(self, method: str, endpoint: str, params: dict) -> typing.Union[dict, None]:
         """
@@ -297,6 +306,16 @@ class BinanceFuturesClient:
         else:
             return None
 
+    def get_single_open_order(self, contract: Contract, order_id):
+        endpoint = "/fapi/v1/openOrder"
+        method = "GET"
+        params = dict()
+        params['symbol'] = contract.symbol
+        params['orderId'] = order_id
+        open_order = self.make_request(method, endpoint, params)
+        if open_order:
+            return Order("binance_futures", open_order)
+
     def get_all_open_orders(self, contract=None) -> typing.Union[None, typing.List[Order]]:
         endpoint = "/fapi/v1/openOrders"
         method = "GET"
@@ -457,10 +476,12 @@ class BinanceFuturesClient:
 
 
 if __name__ == '__main__':
+    start_timer = time.perf_counter()
+
     binance = BinanceFuturesClient(BINANCE_TESTNET_API_PUBLIC, BINANCE_TESTNET_API_SECRET, testnet=True)
     # binance = BinanceFuturesClient(BINANCE_REAL_API_PUBLIC, BINANCE_REAL_API_SECRET, testnet=False)
-    btcusdt = binance.contracts['BTCUSDT']
-    linkusdt = binance.contracts['LINKUSDT']
+    # btcusdt = binance.contracts['BTCUSDT']
+    # linkusdt = binance.contracts['LINKUSDT']
     # print(f"platform: {binance.contracts['BTCUSDT'].platform} | type: {type(binance.contracts['BTCUSDT'].platform)}")
     # print(f"symbol: {binance.contracts['BTCUSDT'].symbol} | type: {type(binance.contracts['BTCUSDT'].symbol)}")
     # print(f"base_asset: {binance.contracts['BTCUSDT'].base_asset} | type: {type(binance.contracts['BTCUSDT'].base_asset)}")
@@ -482,4 +503,5 @@ if __name__ == '__main__':
     # print("*" * 50)
     # print([contract for contract in binance.contracts])
 
-
+    end_timer = time.perf_counter()
+    print(f"time passed: {end_timer - start_timer}")

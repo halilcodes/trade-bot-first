@@ -81,6 +81,36 @@ class Order:
     def __init__(self, platform, order_data):
         self.platform = platform
         self.order_data = order_data
+        self.avg_price = float()
+        self.order_id = None
+        self.executed_quantity = float()
+        self.original_quantity = float()
+        self.original_type = str()
+        self.price = float()
+        self.side = str()
+        self.status = str()
+        self.stop_price = None
+        self.symbol = str()
+        self.order_time_ts = int()
+        self.order_time = None
+        self.tif = str()
+        if self.platform == "binance_futures":
+            self.get_binance_futures_order(order_data)
+
+    def get_binance_futures_order(self, order_data):
+        self.avg_price = order_data['avgPrice']
+        self.order_id = order_data['orderId']
+        self.executed_quantity = order_data['executedQty']
+        self.original_quantity = order_data['origQty']
+        self.original_type = order_data['origType']
+        self.price = order_data['price']
+        self.side = order_data['side']
+        self.status = order_data['status']
+        self.stop_price = order_data['stopPrice']
+        self.symbol = order_data['symbol']
+        self.order_time_ts = order_data['time']
+        self.order_time = dt.datetime.fromtimestamp(int(self.order_time_ts / 1000)).strftime('%Y/%m/%d %H:%M:%S')
+        self.tif = order_data['timeInForce']
 
 
 class Wallet:
