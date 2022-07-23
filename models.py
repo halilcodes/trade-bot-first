@@ -61,6 +61,7 @@ class Position:
             self.get_binance_futures_position(position_data)
 
     def get_binance_futures_position(self, data):
+        # TODO: not finished "GET /fapi/v2/positionRisk (HMAC SHA256)"
         self.entry_price = float(data['entryPrice'])
         self.margin_type = str(data['marginType'])
         self.leverage = int(data['leverage'])
