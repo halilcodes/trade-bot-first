@@ -44,6 +44,33 @@ class Contract:
         self.max_leverage = contract_data['leverage']
 
 
+class Position:
+    def __init__(self, platform: str, position_data):
+        self.platform = platform
+        self.is_open = False
+        self.entry_price = float()
+        self.margin_type = str()
+        self.leverage = int()
+        self.liq_price = float()
+        self.current_price = float()
+        self.amount = float()
+        self.side = str()
+        self.pnl = float()
+        self.update_time_ts = int()
+        if self.platform == "binance_futures":
+            self.get_binance_futures_position(position_data)
+
+    def get_binance_futures_position(self, data):
+        self.entry_price = float(data['entryPrice'])
+        self.margin_type = str(data['marginType'])
+        self.leverage = int(data['leverage'])
+        self.liq_price = float(data['liquidationPrice'])
+        self.current_price = float(data['markPrice'])
+        self.amount = float(data['positionAmt'])
+        # self.side = str(data['positionSide'])
+        self.pnl = float(data['unRealizedProfit'])
+        self.update_time_ts = int(data['updateTime'] / 1000)    # beware of /1000
+
 class Candle:
     def __init__(self, platform: str, candle_list: list, time_frame: str):
         self.platform = platform
@@ -108,7 +135,10 @@ class Order:
         self.status = order_data['status']
         self.stop_price = order_data['stopPrice']
         self.symbol = order_data['symbol']
-        self.order_time_ts = order_data['time']
+        try:
+            self.order_time_ts = order_data['time']
+        except KeyError:
+            self.order_time_ts = order_data['updateTime']
         self.order_time = dt.datetime.fromtimestamp(int(self.order_time_ts / 1000)).strftime('%Y/%m/%d %H:%M:%S')
         self.tif = order_data['timeInForce']
 

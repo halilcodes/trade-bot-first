@@ -14,9 +14,11 @@ from urllib.parse import urlencode
 import datetime as dt
 from dateutil.relativedelta import relativedelta
 import asyncio
+import logkeeper
 
 # TODO: All print statements will be converted to logging entries.
-logger = logging.getLogger()
+
+logger = logging.getLogger(__name__)
 
 
 def timestamp():
@@ -57,10 +59,6 @@ class BinanceFuturesClient:
         payload = urlencode(data).encode()
         return hmac.new(key, payload, hashlib.sha256).hexdigest()
 
-    def connection_check_as(self):
-        server_time = requests.get(self._base_url+"/fapi/v1/time")
-        return server_time.json()
-
     def connection_check(self):
         server_time = requests.get(self._base_url+"/fapi/v1/time")
         return server_time.json()
@@ -81,54 +79,65 @@ class BinanceFuturesClient:
             response = requests.get(complete_url, params, headers=self._header)
         elif method == "POST":
             response = requests.post(complete_url, params, headers=self._header)
-        else:
+        elif method == "PUT":
             response = requests.put(complete_url, params, headers=self._header)
+        else:   # DELETE
+            response = requests.delete(url=complete_url, params=params, headers=self._header)
         code = response.status_code
 
         if code // 100 == 5:
             while self.connection_trials < 5:
-                print(f"Binance Futures Client | Internal error... sending new request. {self.connection_trials}/5")
+                logger.error(f"Binance Futures Client | Internal error... sending new request."
+                             f" {self.connection_trials}/5")
                 self.make_request(method, endpoint, params)
                 self.connection_trials += 1
-            print(f"Binance Futures Client | 5 requests in a row returned {code} error code."
-                  " Check server integrity.")
+            logger.error(f"Binance Futures Client | 5 requests in a row returned {code} error code."
+                         f" Check server integrity.")
 
-        if self.is_request_good(response):
+        if self.is_request_good(response, method):
             self.connection_trials = 0
             return response.json()
         else:
             return None
 
-    def is_request_good(self, response) -> bool:
+    def is_request_good(self, response, method) -> bool:
         """
         Helper function for make_xx_request() functions. determines reason should there be an error.
         :param response: direct response after the request module.
+        :param method: request type
         :return: True if no error, False otherwise.
         """
         code = response.status_code
         if code == 200:
-            print("Binance Futures Client | Request sent successfully. ")
+            # print("Binance Futures Client | Request sent successfully. ")
             self.connection_trials = 0
             return True
         elif code == 429:
+            logger.critical("Binance Futures Client | Request limit has broken. ")
             print("Binance Futures Client | Request limit has broken. ")
         elif code == 418:
-            print("Binance Futures Client | IP has been auto-banned for continuing to send requests"
-                  " after receiving 429 codes. ")
+            logger.error("Binance Futures Client | IP has been auto-banned for continuing to send requests"
+                         " after receiving 429 codes. ")
         elif code // 100 == 4:
             try:
-                print(f"Binance Futures Client | {code} code error, malformed request. {response.json()['msg']}")
+                logger.error(f"Binance Futures Client | {code} code error, malformed {method} request."
+                             f" {response.json()['msg']}")
             except KeyError:
-                print(f"Binance Futures Client | {code} code error, malformed request. {response.json()['message']}")
+                logger.error(f"Binance Futures Client | {code} code error, malformed {method} request."
+                             f" {response.json()['message']}")
         return False
 
     def check_api_connection(self):
         _ = self.make_request("GET", "/fapi/v1/ping", dict())
         get_server_time = self.make_request("GET", "/fapi/v1/time", dict())
         if get_server_time:
+            time_in_ts = get_server_time['serverTime']
             print(f"Binance Futures Client | API is connected. Current server time: {get_server_time['serverTime']}")
+            logger.info(f"Binance Futures Client | API is connected. Current server time:"
+                        f" {time_in_ts} - {dt.datetime.fromtimestamp(int(time_in_ts/1000))}")
         else:
             print("Binance Futures Client | API Connection Failure. ")
+            logger.error("Binance Futures Client | API Connection Failure. ")
 
     def get_balances(self):
         endpoint = "/fapi/v2/account"
@@ -195,8 +204,10 @@ class BinanceFuturesClient:
         params['leverage'] = leverage
         set_leverage = self.make_request(method, endpoint, params)
         if set_leverage is not None:
+            logger.info(f"Binance Futures Client | Margin for {contract.symbol} is set to {leverage}x")
             return set_leverage
         else:
+            logger.error(f"Binance Futures Client | Failed to change margin to {leverage}x for {contract.symbol}")
             return None
 
     def change_margin_type(self, contract: Contract, margin: str):
@@ -211,8 +222,10 @@ class BinanceFuturesClient:
         params['marginType'] = margin
         change_margin = self.make_request(method, endpoint, params)
         if change_margin is not None:
+            logger.info(f"Binance Futures Client | Margin type for {contract.symbol} is set to {margin}")
             return change_margin
         else:
+            logger.error(f"Binance Futures Client | Failed to change margin type to {margin} for {contract.symbol}")
             return None
 
     def place_market_order(self, contract: Contract, quantity: float, side: str):
@@ -224,23 +237,35 @@ class BinanceFuturesClient:
         params['quantity'] = quantity
         params['timestamp'] = int(time.time() * 1000)
         response = self.make_request("POST", endpoint, params)
-        return response
+        if response is not None:
+            logger.info(f"Binance Futures Client | Market order placed: {contract.symbol} / {side} / q:{quantity}")
+            return Order("binance_futures", response)
+        else:
+            logger.error(f"Binance Futures Client | Market order failed: {contract.symbol} / {side} / q:{quantity}")
+            return None
 
-    def place_limit_order(self, contract: Contract, quantity: float, side: str, price: float, tif="GTC"):
-        while quantity * price < 10:
-            quantity += contract.lot_size
-        quantity = round(quantity, contract.quantity_precision)
+    def place_limit_order(self, contract: Contract, amount: float, side: str, price: float, tif="GTC"):
+        while amount * price < 10:
+            amount += contract.lot_size
+        amount = round(amount, contract.quantity_precision)
         endpoint = "/fapi/v1/order"
         params = dict()
         params['symbol'] = contract.symbol
         params['side'] = side.strip().upper()
         params['type'] = "LIMIT"
         params['timeInForce'] = tif
-        params['quantity'] = quantity
+        params['quantity'] = amount
         params['price'] = price
         params['timestamp'] = int(time.time() * 1000)
         response = self.make_request("POST", endpoint, params)
-        return response
+        if response is not None:
+            logger.info(f"Binance Futures Client | Limit order placed: {contract.symbol} / {side} / q:{amount}"
+                        f" / price: {price}")
+            # pprint.pprint(response)
+            return Order("binance_futures", response)
+        else:
+            logger.error(f"Binance Futures Client | Limit order failed: {contract.symbol} / {side} / q:{amount}")
+            return None
 
     def place_stop_order(self, contract: Contract, quantity: float, side: str, price: float, stop_price: float,
                          tif="GTC"):
@@ -264,19 +289,27 @@ class BinanceFuturesClient:
         while quantity * price < 10:
             quantity += contract.lot_size
         quantity = round(quantity, contract.quantity_precision)
-
+        price = round(price, contract.price_precision)
+        stop_price = round(stop_price, contract.price_precision)
+        side = side.strip().upper()
         endpoint = "/fapi/v1/order"
         method = "POST"
         params = dict()
         params['symbol'] = contract.symbol
-        params['side'] = side.strip().upper()
+        params['side'] = side
         params['type'] = "STOP"
         params['timeInForce'] = tif
         params['quantity'] = quantity
         params['price'] = price
         params['stopPrice'] = stop_price
         response = self.make_request(method, endpoint, params)
-        return response
+        if response is not None:
+            logger.info(f"Binance Futures Client | Stop order placed: {contract.symbol} / {side} / q:{quantity}"
+                        f" / price: {price} / stop @{stop_price}")
+            return Order("binance_futures", response)
+        else:
+            logger.error(f"Binance Futures Client | Stop order failed: {contract.symbol} / {side} / q:{quantity}")
+            return None
 
     def get_orders_for_symbol(self, contract: Contract):
         """Order Types:
@@ -334,6 +367,19 @@ class BinanceFuturesClient:
         else:
             return None
 
+    def get_position(self, contract: typing.Optional[None, Contract] = None):
+        endpoint = "/fapi/v2/positionRisk"
+        method = "GET"
+        params = dict()
+        if contract is not None:
+            params['symbol'] = contract.symbol
+        position = self.make_request(method, endpoint, params)
+        if position is not None:
+            return position
+        else:
+            logger.info("Binance Futures Client | Failed to get open positions")
+            return None
+
     def cancel_open_orders(self, contract: Contract, countdown=2):
         endpoint = "/fapi/v1/countdownCancelAll"
         method = "POST"
@@ -344,7 +390,21 @@ class BinanceFuturesClient:
         params['countdownTime'] = int(countdown * 1000)
         cancel_req = self.make_request(method, endpoint, params)
         if cancel_req is not None:
+            logger.info(f"Binance Futures Client | {contract.symbol} orders canceled.")
             return cancel_req
+
+    def cancel_order(self, order: Order):
+        method = "DELETE"
+        endpoint = "/fapi/v1/order"
+        params = dict()
+        params['symbol'] = order.symbol
+        params['orderId'] = order.order_id
+        cancel_req = self.make_request(method, endpoint, params)
+        if cancel_req is not None:
+            logger.info(f"Binance Futures Client | {order.symbol} order id:{order.order_id} canceled.")
+            return cancel_req
+        else:
+            logger.error(f"Binance Futures Client | {order.symbol} order id:{order.order_id} cancel FAILED.")
 
     def get_historical_data(self, contract: Contract, interval: str, limit=500, start_time=None, end_time=None,
                             is_timestamp=True) -> typing.Union[None, typing.Dict[str, typing.List[Candle]]]:
@@ -369,10 +429,11 @@ class BinanceFuturesClient:
         if limit > 1500:
             limit = 1500
         candle_dict = dict()
-        endpoint = "/fapi/v1/klines"
+        endpoint = "/fapi/v1/continuousKlines"
         method = "GET"
         params = dict()
-        params['symbol'] = contract.symbol
+        params['pair'] = contract.symbol
+        params['contractType'] = "PERPETUAL"
         params['interval'] = interval
         if start_time is not None:
             params['startTime'] = int(start_time)
@@ -392,8 +453,11 @@ class BinanceFuturesClient:
             candle_dict[date_label] = list()
             for candle in klines:
                 candle_dict[date_label].append(Candle("binance_futures", candle, interval))
+            logger.info(f"Binance Futures Client | {date_label} historical data retrieved.")
             return candle_dict
         else:
+            logger.error(f"Binance Futures Client | Historical data retrieving failure for"
+                         f" {contract.symbol}-{interval}.")
             return None
 
     def request_lvl2_id(self, symbol: str, start_time, end_time, is_timestamp=False, data_type="T_DEPTH"):
@@ -477,10 +541,13 @@ class BinanceFuturesClient:
 
 if __name__ == '__main__':
     start_timer = time.perf_counter()
+    logkeeper.log_keeper("binance_futures.log")
+
+    logger.info("Grazie from Binance Futures")
 
     binance = BinanceFuturesClient(BINANCE_TESTNET_API_PUBLIC, BINANCE_TESTNET_API_SECRET, testnet=True)
     # binance = BinanceFuturesClient(BINANCE_REAL_API_PUBLIC, BINANCE_REAL_API_SECRET, testnet=False)
-    # btcusdt = binance.contracts['BTCUSDT']
+    btcusdt = binance.contracts['BTCUSDT']
     # linkusdt = binance.contracts['LINKUSDT']
     # print(f"platform: {binance.contracts['BTCUSDT'].platform} | type: {type(binance.contracts['BTCUSDT'].platform)}")
     # print(f"symbol: {binance.contracts['BTCUSDT'].symbol} | type: {type(binance.contracts['BTCUSDT'].symbol)}")
@@ -503,5 +570,13 @@ if __name__ == '__main__':
     # print("*" * 50)
     # print([contract for contract in binance.contracts])
 
+    binance.check_api_connection()
+    binance.cancel_open_orders(btcusdt)
+    time.sleep(1)
+    btc_order = binance.place_market_order(btcusdt, 0.001, "buy")
+    time.sleep(6)
+    btc_sell_order = binance.place_market_order(btcusdt, 0.001, "sell")
+
     end_timer = time.perf_counter()
+
     print(f"time passed: {end_timer - start_timer}")
