@@ -57,6 +57,7 @@ class Position:
         self.side = str()
         self.pnl = float()
         self.update_time_ts = int()
+        self.update_time = None
         if self.platform == "binance_futures":
             self.get_binance_futures_position(position_data)
 
@@ -68,9 +69,11 @@ class Position:
         self.liq_price = float(data['liquidationPrice'])
         self.current_price = float(data['markPrice'])
         self.amount = float(data['positionAmt'])
-        # self.side = str(data['positionSide'])
+        self.side = str(data['positionSide'])
         self.pnl = float(data['unRealizedProfit'])
-        self.update_time_ts = int(data['updateTime'] / 1000)    # beware of /1000
+        self.update_time_ts = int(data['updateTime'])    # beware of /1000
+        self.update_time = dt.datetime.fromtimestamp(int(self.update_time_ts / 1000)).strftime('%Y/%m/%d %H:%M:%S')
+
 
 class Candle:
     def __init__(self, platform: str, candle_list: list, time_frame: str):
@@ -105,7 +108,6 @@ class Candle:
 
 
 class Order:
-    # TODO: write-down here.
     def __init__(self, platform, order_data):
         self.platform = platform
         self.order_data = order_data

@@ -7,7 +7,7 @@ import threading
 from keys import *
 import logging
 import typing
-from models import Contract, Candle, Order, Wallet
+from models import Contract, Candle, Order, Wallet, Position
 import hmac
 import hashlib
 from urllib.parse import urlencode
@@ -367,15 +367,18 @@ class BinanceFuturesClient:
         else:
             return None
 
-    def get_position(self, contract: typing.Optional[None, Contract] = None):
+    def get_positions(self, contract=None) -> typing.Optional[typing.List[Position]]:
         endpoint = "/fapi/v2/positionRisk"
         method = "GET"
         params = dict()
+        pos_list = []
         if contract is not None:
             params['symbol'] = contract.symbol
-        position = self.make_request(method, endpoint, params)
-        if position is not None:
-            return position
+        positions = self.make_request(method, endpoint, params)
+        if positions is not None:
+            for position in positions:
+                pos_list.append(Position("binance_futures", position))
+            return pos_list
         else:
             logger.info("Binance Futures Client | Failed to get open positions")
             return None
