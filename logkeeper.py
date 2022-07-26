@@ -12,10 +12,12 @@ def log_examples(extra_words):
     # TODO: read https://docs.python.org/3/library/logging.html for effective logging
 
 
-def log_keeper(file_path):
+def log_keeper(file_path=None, name=None):
     if file_path is None:
         file_path = "info.log"
-    logger = logging.getLogger()
+    if name is None:
+        name = __name__
+    logger = logging.getLogger(name)
     logger.setLevel(logging.INFO)
 
     stream_handler = logging.StreamHandler()
@@ -23,8 +25,7 @@ def log_keeper(file_path):
     stream_handler.setFormatter(formatter)
     stream_handler.setLevel(logging.INFO)
 
-    file_handler = logging.FileHandler(f"C:\\Users\\User\\Desktop\\Learn_Coding\\Portfolio_Projects\\"
-                                       f"trade-bot-first\\logfiles\\{file_path}")
+    file_handler = logging.FileHandler(f"logfiles\\{file_path}")
     file_handler.setFormatter(formatter)
     file_handler.setLevel(logging.INFO)
 

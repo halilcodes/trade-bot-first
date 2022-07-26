@@ -13,28 +13,25 @@ import hashlib
 from urllib.parse import urlencode
 import datetime as dt
 from dateutil.relativedelta import relativedelta
-import asyncio
 import logkeeper
+import connectors.utils as utils
 
 # TODO: All print statements will be converted to logging entries.
 
-logger = logging.getLogger(__name__)
-
-
-def timestamp():
-    return int(time.time() * 1000)
+logger = logging.getLogger("binance_futures.py")
+logkeeper.log_keeper("connectors.log", "binance_futures.py")
 
 
 class BinanceFuturesClient:
     def __init__(self, public_key: str, secret_key: str, testnet: bool):
         if testnet:
             self._base_url = "https://testnet.binancefuture.com"
-            self._wss_url = "wss://testnet.binancefuture.com/ws"
+            self._wss_url = "wss://testnet.binancefuture.com/ws/"
             self.connection_type = "Testnet"
         else:
             self._base_url = "https://fapi.binance.com"
             # self._base_url = "https://api.binance.com/sapi/v1"    # for depth level data only
-            self._wss_url = "wss://fstream.binance.com/ws"
+            self._wss_url = "wss://fstream.binance.com/ws/"
             self.connection_type = "Real Account"
 
         self.platform = "binance_futures"
@@ -52,6 +49,46 @@ class BinanceFuturesClient:
         self.standing_orders = dict()
         self.orders_history = dict()
         self.failed_orders = dict()
+        try:
+            self.listen_key = self.get_listen_key()
+        except AttributeError:
+            self.listen_key = ""
+
+    def get_listen_key(self):
+        response = self.make_request("POST", "/fapi/v1/listenKey", dict())
+        if response is not None:
+            key = response['listenKey']
+            if key == self.listen_key:
+                response = self.make_request("PUT", "/fapi/v1/listenKey", dict())
+            logger.info(f"Binance Futures Client | Current listen key: {response['listenKey']}")
+            return key
+        else:
+            logger.error(f"Binance Futures Client | Unable to create a listenKey for user data stream. ")
+            return response
+
+    # TODO: Websocket not working!
+
+    def on_message(self, ws, message):
+        print(message)
+
+    def on_error(self, ws, error):
+        print(error)
+
+    def on_close(self, ws, close_status_code, close_msg):
+        print("### closed ###")
+
+    def on_open(self, ws):
+        print("Opened connection")
+
+    def subscribe_channel(self, channel, symbol):
+        url = f"{symbol.lower().strip()}/{channel}"
+        ws = websocket.WebSocketApp(self._wss_url+url,
+                                    on_open=self.on_open,
+                                    on_message=self.on_message,
+                                    on_error=self.on_error,
+                                    on_close=self.on_close)
+        while True:
+            ws.run_forever()
 
     def _get_signature(self, data: dict):
         """ HMAC SHA 256 signature provider"""
@@ -544,41 +581,14 @@ class BinanceFuturesClient:
 
 if __name__ == '__main__':
     start_timer = time.perf_counter()
-    logkeeper.log_keeper("binance_futures.log")
 
     logger.info("Grazie from Binance Futures")
 
     binance = BinanceFuturesClient(BINANCE_TESTNET_API_PUBLIC, BINANCE_TESTNET_API_SECRET, testnet=True)
     # binance = BinanceFuturesClient(BINANCE_REAL_API_PUBLIC, BINANCE_REAL_API_SECRET, testnet=False)
-    btcusdt = binance.contracts['BTCUSDT']
-    # linkusdt = binance.contracts['LINKUSDT']
-    # print(f"platform: {binance.contracts['BTCUSDT'].platform} | type: {type(binance.contracts['BTCUSDT'].platform)}")
-    # print(f"symbol: {binance.contracts['BTCUSDT'].symbol} | type: {type(binance.contracts['BTCUSDT'].symbol)}")
-    # print(f"base_asset: {binance.contracts['BTCUSDT'].base_asset} | type: {type(binance.contracts['BTCUSDT'].base_asset)}")
-    # print(f"quote_asset: {binance.contracts['BTCUSDT'].quote_asset} | type: {type(binance.contracts['BTCUSDT'].quote_asset)}")
-    # print(f"margin_asset: {binance.contracts['BTCUSDT'].margin_asset} | type: {type(binance.contracts['BTCUSDT'].margin_asset)}")
-    # print(f"margin_percent: {binance.contracts['BTCUSDT'].margin_percent} |"
-    #       f" type: {type(binance.contracts['BTCUSDT'].margin_percent)}")
-    # print(f"price_precision: {binance.contracts['BTCUSDT'].price_precision} |"
-    #       f" type: {type(binance.contracts['BTCUSDT'].price_precision)}")
-    # print(f"quantity_precision: {binance.contracts['BTCUSDT'].quantity_precision} |"
-    #       f" type: {type(binance.contracts['BTCUSDT'].quantity_precision)}")
-    # print(f"tick_size: {binance.contracts['BTCUSDT'].tick_size} | type: {type(binance.contracts['BTCUSDT'].tick_size)}")
-    # print(f"lot_size: {binance.contracts['BTCUSDT'].lot_size} | type: {type(binance.contracts['BTCUSDT'].lot_size)}")
-    # print(f"max_order_limit: {binance.contracts['BTCUSDT'].max_order_limit} |"
-    #       f" type: {type(binance.contracts['BTCUSDT'].max_order_limit)}")
-    # print(f"order_types: {binance.contracts['BTCUSDT'].order_types} | type: {type(binance.contracts['BTCUSDT'].order_types)}")
-    # print(f"time_in_forces: {binance.contracts['BTCUSDT'].time_in_forces} |"
-    #       f" type: {type(binance.contracts['BTCUSDT'].time_in_forces)}")
-    # print("*" * 50)
-    # print([contract for contract in binance.contracts])
+    # btcusdt = binance.contracts['BTCUSDT']
 
-    binance.check_api_connection()
-    binance.cancel_open_orders(btcusdt)
-    time.sleep(1)
-    btc_order = binance.place_market_order(btcusdt, 0.001, "buy")
-    time.sleep(6)
-    btc_sell_order = binance.place_market_order(btcusdt, 0.001, "sell")
+    binance.subscribe_channel("@depth", "btcusdt")
 
     end_timer = time.perf_counter()
 
