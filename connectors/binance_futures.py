@@ -35,8 +35,6 @@ class BinanceFuturesClient:
             self._wss_url = "wss://fstream.binance.com/ws/"
             self.connection_type = "Real Account"
 
-
-
         # TODO: Add paper trading option
 
         # API Request variables
@@ -46,16 +44,17 @@ class BinanceFuturesClient:
         self._header = {"X-MBX-APIKEY": self._public_key}
         self.connection_trials = 0
 
-        # Models and Websocket variables
+        # Models variables
         self.candles = dict()
         self.standing_orders = dict()
         self.orders_history = dict()
         self.failed_orders = dict()
+
+        #  Websocket variables
         self.ws: websocket.WebSocketApp
         self.ws_id = 1
+        self.is_ws_working = False
         self.subscriptions = dict()
-
-
 
         self.maker_commission = 0.02 / 100
         self.taker_commission = 0.04 / 100
@@ -83,20 +82,27 @@ class BinanceFuturesClient:
             return response
 
     def start_ws(self):
-        self.ws = websocket.WebSocketApp(self._wss_url,
-                                         on_open=self.on_open,
-                                         on_message=self.on_message,
-                                         on_error=self.on_error,
-                                         on_close=self.on_close)
-        try:
-            self.ws.run_forever()
-        except Exception as e:
-            print(e)
-            time.sleep(1)
-            self.start_ws()
+        while not self.is_ws_working:
+            self.ws = websocket.WebSocketApp(self._wss_url,
+                                             on_open=self.on_open,
+                                             on_message=self.on_message,
+                                             on_error=self.on_error,
+                                             on_close=self.on_close)
+            try:
+                self.ws.run_forever()
+            except Exception as e:
+                print(e)
+                time.sleep(1)
+                self.start_ws()
         return None
 
     def suscribe_channel(self, channel: str, symbols: typing.List[typing.Union[str, Contract]]):
+        """
+        Subscribe to desired websocket channels for desired symbol(s)
+        :param channel:
+        :param symbols:
+        :return:
+        """
         data = dict()
         data['method'] = "SUBSCRIBE"
         data['params'] = []
@@ -108,6 +114,7 @@ class BinanceFuturesClient:
         data['id'] = self.ws_id
         try:
             self.ws.send(json.dumps(data))
+            logger.info("Binance Futures Client | Websocket subbed to %s for %s channel", symbols, channel)
         except Exception as e:
             logger.error("Binance Futures Client | Websocket error while subscribing to %s %s updates: %s",
                          len(symbols), channel, e)
@@ -119,19 +126,36 @@ class BinanceFuturesClient:
     def unsub_channel(self, channel_id: int):
         data = dict()
         data['method'] = "UNSUBSCRIBE"
-        data['params'] = self.subscriptions[id]
-        data["id"] = id
+        data['params'] = self.subscriptions[channel_id]
+        data["id"] = channel_id
         try:
             self.ws.send(json.dumps(data))
         except Exception as e:
-            logger.error("Binance Futures Client | Websocket error while UNsubscribing to %s updates: %s",
-                         id, e)
-
-
+            logger.error("Binance Futures Client | Websocket error while unsubscribing to %s updates: %s",
+                         channel_id, e)
 
     def on_message(self, ws, msg):
         data = json.loads(msg)
-        pprint.pprint(data)
+
+        if data['e'] == "aggTrade":
+            symbol = data['s']
+            time_in_ts = int(data['E'])
+            dtime = dt.datetime.fromtimestamp(int(time_in_ts / 1000)).strftime('%Y/%m/%d %H:%M:%S')
+            price = float(data['p'])
+            quantity = float(data['q'])
+            is_buyer_maker = bool(data['m'])
+            cost = price * quantity
+            print(f"{symbol} update {dtime}:: price:{price:,} quantity:{quantity:,} "
+                  f"{'sold' if is_buyer_maker else 'filled'} | COST: {cost:,.2f} $")
+
+        elif data['e'] == "bookTicker":
+            # TODO: fill for <symbol>@bookTicker
+            pass
+        else:
+            pprint.pprint(data)
+            print("new message!")
+
+
 
     def on_error(self, ws, error):
         logger.info("Binance Futures Client | Websocket Error occurred: %s.", error)
@@ -642,19 +666,19 @@ if __name__ == '__main__':
     # binance = BinanceFuturesClient(BINANCE_REAL_API_PUBLIC, BINANCE_REAL_API_SECRET, testnet=False)
     # btcusdt = binance.contracts['BTCUSDT']
 
-
-
     time.sleep(5)
     print("GO time")
-    binance.suscribe_channel("aggTrade", ["btcusdt"])
-    print("round 2")
-    binance.suscribe_channel("aggTrade", ["solusdt", "linkusdt"])
+    binance.suscribe_channel("bookTicker", ["btcusdt"])
     time.sleep(2)
-    print(binance.subscriptions)
-    binance.unsub_channel(1)
-    time.sleep(1)
-    binance.unsub_channel(2)
-    time.sleep(2)
+    # print("round 2")
+    binance.suscribe_channel("bookTicker", ["solusdt", "linkusdt"])
+    # time.sleep(10)
+    # print("printing current subs")
+    # print(binance.subscriptions)
+    # binance.unsub_channel(1)
+    # time.sleep(1)
+    # binance.unsub_channel(2)
+    # time.sleep(2)
 
     end_timer = time.perf_counter()
 
