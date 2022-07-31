@@ -1,3 +1,4 @@
+import asyncio
 import json
 import pprint
 import time
@@ -34,25 +35,40 @@ class BinanceFuturesClient:
             self._wss_url = "wss://fstream.binance.com/ws/"
             self.connection_type = "Real Account"
 
+
+
+        # TODO: Add paper trading option
+
+        # API Request variables
         self.platform = "binance_futures"
         self._public_key = public_key
         self._secret_key = secret_key
         self._header = {"X-MBX-APIKEY": self._public_key}
         self.connection_trials = 0
-        self.wallet_info = self.get_balances()
 
-        self.maker_commission = 0.02 / 100
-        self.taker_commission = 0.04 / 100
-
-        self.contracts = self.get_current_contracts()
+        # Models and Websocket variables
         self.candles = dict()
         self.standing_orders = dict()
         self.orders_history = dict()
         self.failed_orders = dict()
+        self.ws: websocket.WebSocketApp
+        self.ws_id = 1
+        self.subscriptions = dict()
+
+
+
+        self.maker_commission = 0.02 / 100
+        self.taker_commission = 0.04 / 100
+        self.wallet_info = self.get_balances()
+        self.contracts = self.get_current_contracts()
+
         try:
             self.listen_key = self.get_listen_key()
         except AttributeError:
             self.listen_key = ""
+
+        t = threading.Thread(target=self.start_ws)
+        t.start()
 
     def get_listen_key(self):
         response = self.make_request("POST", "/fapi/v1/listenKey", dict())
@@ -63,32 +79,70 @@ class BinanceFuturesClient:
             logger.info(f"Binance Futures Client | Current listen key: {response['listenKey']}")
             return key
         else:
-            logger.error(f"Binance Futures Client | Unable to create a listenKey for user data stream. ")
+            logger.error("Binance Futures Client | Unable to create a listenKey for user data stream. ")
             return response
 
-    # TODO: Websocket not working!
+    def start_ws(self):
+        self.ws = websocket.WebSocketApp(self._wss_url,
+                                         on_open=self.on_open,
+                                         on_message=self.on_message,
+                                         on_error=self.on_error,
+                                         on_close=self.on_close)
+        try:
+            self.ws.run_forever()
+        except Exception as e:
+            print(e)
+            time.sleep(1)
+            self.start_ws()
+        return None
 
-    def on_message(self, ws, message):
-        print(message)
+    def suscribe_channel(self, channel: str, symbols: typing.List[typing.Union[str, Contract]]):
+        data = dict()
+        data['method'] = "SUBSCRIBE"
+        data['params'] = []
+        for symbol in symbols:
+            if isinstance(symbol, Contract):
+                symbol = symbol.symbol
+            symbol = symbol.lower().strip()
+            data['params'].append(f"{symbol}@{channel}")
+        data['id'] = self.ws_id
+        try:
+            self.ws.send(json.dumps(data))
+        except Exception as e:
+            logger.error("Binance Futures Client | Websocket error while subscribing to %s %s updates: %s",
+                         len(symbols), channel, e)
+
+        self.subscriptions[self.ws_id] = data['params']
+        self.ws_id += 1
+        return self.ws_id-1
+
+    def unsub_channel(self, channel_id: int):
+        data = dict()
+        data['method'] = "UNSUBSCRIBE"
+        data['params'] = self.subscriptions[id]
+        data["id"] = id
+        try:
+            self.ws.send(json.dumps(data))
+        except Exception as e:
+            logger.error("Binance Futures Client | Websocket error while UNsubscribing to %s updates: %s",
+                         id, e)
+
+
+
+    def on_message(self, ws, msg):
+        data = json.loads(msg)
+        pprint.pprint(data)
 
     def on_error(self, ws, error):
+        logger.info("Binance Futures Client | Websocket Error occurred: %s.", error)
         print(error)
 
     def on_close(self, ws, close_status_code, close_msg):
         print("### closed ###")
 
     def on_open(self, ws):
+        logger.info("Binance Futures Client | Websocket Activated.")
         print("Opened connection")
-
-    def subscribe_channel(self, channel, symbol):
-        url = f"{symbol.lower().strip()}/{channel}"
-        ws = websocket.WebSocketApp(self._wss_url+url,
-                                    on_open=self.on_open,
-                                    on_message=self.on_message,
-                                    on_error=self.on_error,
-                                    on_close=self.on_close)
-        while True:
-            ws.run_forever()
 
     def _get_signature(self, data: dict):
         """ HMAC SHA 256 signature provider"""
@@ -588,7 +642,19 @@ if __name__ == '__main__':
     # binance = BinanceFuturesClient(BINANCE_REAL_API_PUBLIC, BINANCE_REAL_API_SECRET, testnet=False)
     # btcusdt = binance.contracts['BTCUSDT']
 
-    binance.subscribe_channel("@depth", "btcusdt")
+
+
+    time.sleep(5)
+    print("GO time")
+    binance.suscribe_channel("aggTrade", ["btcusdt"])
+    print("round 2")
+    binance.suscribe_channel("aggTrade", ["solusdt", "linkusdt"])
+    time.sleep(2)
+    print(binance.subscriptions)
+    binance.unsub_channel(1)
+    time.sleep(1)
+    binance.unsub_channel(2)
+    time.sleep(2)
 
     end_timer = time.perf_counter()
 
