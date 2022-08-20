@@ -130,32 +130,56 @@ class BinanceFuturesClient:
         data["id"] = channel_id
         try:
             self.ws.send(json.dumps(data))
+            del self.subscriptions[channel_id]
         except Exception as e:
             logger.error("Binance Futures Client | Websocket error while unsubscribing to %s updates: %s",
                          channel_id, e)
 
+    def update_subscriptions(self):
+        data = dict()
+        data["method"] = "LIST_SUBSCRIPTIONS"
+        data["id"] = self.ws_id
+        self.ws_id += 1
+        try:
+            self.ws.send(json.dumps(data))
+        except Exception as e:
+            logger.error("Binance Futures Client | Websocket error while Sub List update: %s", e)
+
     def on_message(self, ws, msg):
         data = json.loads(msg)
+        print("new message!")
 
-        if data['e'] == "aggTrade":
-            symbol = data['s']
-            time_in_ts = int(data['E'])
-            dtime = dt.datetime.fromtimestamp(int(time_in_ts / 1000)).strftime('%Y/%m/%d %H:%M:%S')
-            price = float(data['p'])
-            quantity = float(data['q'])
-            is_buyer_maker = bool(data['m'])
-            cost = price * quantity
-            print(f"{symbol} update {dtime}:: price:{price:,} quantity:{quantity:,} "
-                  f"{'sold' if is_buyer_maker else 'filled'} | COST: {cost:,.2f} $")
+        if 'e' in data.keys():
+            if data['e'] == "aggTrade":
+                symbol = data['s']
+                time_in_ts = int(data['E'])
+                dtime = dt.datetime.fromtimestamp(int(time_in_ts / 1000)).strftime('%Y/%m/%d %H:%M:%S')
+                price = float(data['p'])
+                quantity = float(data['q'])
+                is_buyer_maker = bool(data['m'])
+                cost = price * quantity
+                print(f"{symbol} update {dtime}:: price:{price:,} quantity:{quantity:,} "
+                      f"{'filled' if is_buyer_maker else 'sold'} | COST: {cost:,.2f} $")
 
-        elif data['e'] == "bookTicker":
-            # TODO: fill for <symbol>@bookTicker
-            pass
-        else:
-            pprint.pprint(data)
-            print("new message!")
+            elif data['e'] == "bookTicker":
+                # TODO: fill for <symbol>@bookTicker
+                symbol = data['s']
+                time_in_ts = int(data['E'])
+                dtime = dt.datetime.fromtimestamp(int(time_in_ts / 1000)).strftime('%Y/%m/%d %H:%M:%S')
+                bid_price = data['b']
+                bid_quantity = data['B']
+                ask_price = data['a']
+                ask_quantity = data['A']
+                print(f"{symbol} update {dtime} :: bid:{bid_quantity} @ {bid_price} -- {ask_price} @ {ask_quantity}")
 
+            else:
+                pprint.pprint(data)
 
+        elif 'result' in data.keys():
+            if data['result'] is not None:
+                self.subscriptions["last_update"] = data['result']
+            else:
+                pprint.pprint(data)
 
     def on_error(self, ws, error):
         logger.info("Binance Futures Client | Websocket Error occurred: %s.", error)
@@ -641,7 +665,7 @@ class BinanceFuturesClient:
             return "LINK Request gone wrong"
 
     def get_lv2_id(self, symbol: str, first_start_time: str, daily_interval=7, repetition=1):
-        # TODO: I wrote this to get download id's in a bulk but its half-done.
+        #  I wrote this to get download id's in a bulk but its half-done.
         start_time = dt.datetime.strptime(first_start_time, '%Y/%m/%d %H:%M:%S')
         for i in range(repetition):
             end_time = start_time + relativedelta(days=daily_interval)
@@ -665,21 +689,3 @@ if __name__ == '__main__':
     binance = BinanceFuturesClient(BINANCE_TESTNET_API_PUBLIC, BINANCE_TESTNET_API_SECRET, testnet=True)
     # binance = BinanceFuturesClient(BINANCE_REAL_API_PUBLIC, BINANCE_REAL_API_SECRET, testnet=False)
     # btcusdt = binance.contracts['BTCUSDT']
-
-    time.sleep(5)
-    print("GO time")
-    binance.suscribe_channel("bookTicker", ["btcusdt"])
-    time.sleep(2)
-    # print("round 2")
-    binance.suscribe_channel("bookTicker", ["solusdt", "linkusdt"])
-    # time.sleep(10)
-    # print("printing current subs")
-    # print(binance.subscriptions)
-    # binance.unsub_channel(1)
-    # time.sleep(1)
-    # binance.unsub_channel(2)
-    # time.sleep(2)
-
-    end_timer = time.perf_counter()
-
-    print(f"time passed: {end_timer - start_timer}")
